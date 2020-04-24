@@ -7,7 +7,7 @@ Before creating an issue, please do the following:
 - Make sure you have understood the product terminologies and concepts well by following our [TrilioVault For Kubernetes](https://app.gitbook.com/@triliovault-trilio/s/ibm-cloud-paks/) documentation
 - Make sure the behavior you are reporting is really a bug, not a feature.
 -  Check the  [existing issues](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/issues)  to make sure you are not duplicating somebody’s work.
-- Make sure your environment successfully passes our [prerequisite check](https://github.com/trilioData/k8s-triliovault/blob/master/tools/preflight.sh). Our solution is dependent on CSI, so these prerequisite checks are focused around testing the operations of your CSI installation. Please run this prerequistie check tool, if not have done already. Make sure it passes all the checks.
+- Make sure your environment successfully passes our [prerequisite check](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/blob/master/tools/preflight/README.md). Our solution is dependent on CSI, so these prerequisite checks are focused around testing the operations of your CSI installation. Please run this prerequistie check tool, if not have done already. Make sure it passes all the checks.
 - GitHub is intended for free teir and basic tier users to report on issues. There are no account management services associated with GitHub. Enterprise users should report any issues directly to their respective customer success manager.
 
 If you are sure that the problem you are experiencing is caused by a bug, file a new issue in a Github issue tracker following the recommendations below.
@@ -77,4 +77,4 @@ Backup status changed to Failed
 
 ### Support Log Bundle
 
-TrilioVault for Kubernetes provides [Support Log Collector](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/blob/master/log_collector/README.md) tool, which captures all the necessary information required for our developers to debug your issue. **We strongly recommend you run this utility and upload the zip file created by this tool**
+TrilioVault for Kubernetes provides [Support Log Collector](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/blob/master/tools/log_collector/README.md) tool, which captures all the necessary information required for our developers to debug your issue. **We strongly recommend you run this utility and upload the zip file created by this tool**
