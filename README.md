@@ -4,7 +4,7 @@ To maintain an effective bugfix workflow and ensure issues are resolved in a tim
 
 Before creating an issue, please do the following:
 
-- Make sure you have understood the product terminologies and concepts well by following our [TrilioVault For Kubernetes](https://app.gitbook.com/@triliovault-trilio/s/ibm-cloud-paks/) documentation
+- Make sure you have understood the product terminologies and concepts well by following our [TrilioVault For Kubernetes](https://docs.trilio.io) documentation
 - Make sure the behavior you are reporting is really a bug, not a feature.
 -  Check the  [existing issues](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/issues)  to make sure you are not duplicating somebody’s work.
 - Make sure your environment successfully passes our [preflight check](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/blob/master/tools/preflight/README.md). Our solution is dependent on CSI, so these preflight checks are focused around testing the operations of your CSI installation. Please run this preflight check tool, if not have done already. Make sure it passes all the checks.
