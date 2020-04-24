@@ -39,7 +39,7 @@ Following are the checks included in preflight:
 ## Running Preflight checks
 
 - Getting preflight.sh
-  - `wget https://raw.githubusercontent.com/triliovault-k8s-issues/triliovault-k8s-issues/master/tools/preflight.sh`
+  - `wget https://raw.githubusercontent.com/triliovault-k8s-issues/triliovault-k8s-issues/master/tools/preflight/preflight.sh`
   - `chmod +x ./preflight.sh`
 
 - Available parametes for script `./preflight.sh --help`
