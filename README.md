@@ -10,7 +10,7 @@ Before creating an issue, please do the following:
 - Make sure your environment successfully passes our [preflight check](https://github.com/triliovault-k8s-issues/triliovault-k8s-issues/blob/master/tools/preflight/README.md). Our solution is dependent on CSI, so these preflight checks are focused around testing the operations of your CSI installation. Please run this preflight check tool, if not have done already. Make sure it passes all the checks.
 - GitHub is intended for free teir and basic tier users to report on issues. There are no account management services associated with GitHub. Enterprise users should report any issues directly to their respective customer success manager.
 
-If you are sure that the problem you are experiencing is caused by a bug, file a new issue in a Github issue tracker following the recommendations below.
+If you are sure that the problem you are experiencing is caused by a bug, file a new issue in a GitHub issue tracker following the recommendations below.
 - 
 # Issue Template
 
