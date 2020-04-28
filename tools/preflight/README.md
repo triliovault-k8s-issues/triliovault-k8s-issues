@@ -1,13 +1,12 @@
 # Kubernetes Triliovault Preflight Checks
 
 **preflight.sh** is a standalone helper script which checks if all the pre-requisites are
-met before installing Triliovault application in a K8s cluster.
+met before installing Triliovault for Kubernetes application in a Kubernetes cluster.
 
 ## Checks Performed during Preflight
 
-Some checks are performed on system from where application installation is about to happen
-and some are performed on the K8s cluster.
-Following are the checks included in preflight:
+Some checks are performed on system from where the application is installed and some are performed on the K8s cluster.
+The following checks included in preflight:
 
 - Ensure *kubectl* utility is present on system
 - Ensure *kubectl* is pointed to k8s cluster (i.e can access the remote target cluster)
