@@ -27,13 +27,14 @@ echo "Usage:
 ./preFlight.sh --storageclass <storage_class_name>
 Params:
 	--storageclass	name of storage class being used in k8s cluster
+	--snapshotclass name of volume snapshot class being used in k8s cluster
 	--kubeconfig	path to kube config (OPTIONAL)
 "
 }
 
 take_input(){
 	if [[ -z "${1}" ]]; then
-		echo "Error: Storage class needed to run pre flight checks!"
+		echo "Error: Storage class and volume snapshot class params are needed to run pre flight checks!"
 		print_help
 		exit 1
 	fi
@@ -45,6 +46,15 @@ take_input(){
 					shift
 				else
 					STORAGE_CLASS=$2
+					shift 2
+				fi
+				;;
+			--snapshotclass)
+				if [[ "$2" =~ -- ]]; then
+					SNAPSHOT_CLASS=""
+					shift
+				else
+					SNAPSHOT_CLASS=$2
 					shift 2
 				fi
 				;;
@@ -63,8 +73,8 @@ take_input(){
 				shift; break;;
 		esac
 	done
-	if [[ -z ${STORAGE_CLASS} ]]; then
-		echo "Error: Storage class needed to run pre flight checks!"
+	if [[ -z "${STORAGE_CLASS}" || -z "${SNAPSHOT_CLASS}" ]]; then
+		echo "Error: Storage class and volume snapshot class, both params are needed to run pre flight checks!"
 		print_help
 		exit 1
 	fi
@@ -183,14 +193,21 @@ check_kubernetes_rbac() {
 	return ${exit_status}
 }
 
-check_storage_class() {
-	echo -e "${LIGHT_BLUE}Checking if a StorageClass is present...${NC}\n"
+check_storage_snapshot_class() {
+	echo -e "${LIGHT_BLUE}Checking if a StorageClass and VolumeSnapshotClass are present...${NC}\n"
 	local exit_status=0
 	# shellcheck disable=SC2143
 	if [[ $(kubectl get storageclass | grep -E "(^|\s)${STORAGE_CLASS}($|\s)") ]]; then
 		echo -e "${GREEN} ${CHECK} Storage class \"${STORAGE_CLASS}\" found${NC}\n"
 	else
 		echo -e "${RED} ${CROSS} Storage class \"${STORAGE_CLASS}\" not found${NC}\n"
+		exit_status=1
+	fi
+	# shellcheck disable=SC2143
+	if [[ $(kubectl get volumesnapshotclass | grep -E "(^|\s)${SNAPSHOT_CLASS}($|\s)") ]]; then
+		echo -e "${GREEN} ${CHECK} Volume snapshot class \"${SNAPSHOT_CLASS}\" found${NC}\n"
+	else
+		echo -e "${RED} ${CROSS} Volume snapshot class \"${SNAPSHOT_CLASS}\" not found${NC}\n"
 		exit_status=1
 	fi
 	return ${exit_status}
@@ -307,8 +324,8 @@ check_volume_snapshot(){
 	echo -e "${LIGHT_BLUE}Checking if volume snapshot and restore enabled in K8s cluster...${NC}\n"
 	local err_status=1
 	local success_status=0
-	local retries=5
-	local sleep=3
+	local retries=6
+	local sleep=5
 	set +o errexit
 
 cat <<EOF | kubectl apply -f - &> /dev/null
@@ -352,16 +369,31 @@ EOF
 		return ${err_status}
 	fi
 
+	# shellcheck disable=SC2143
+	if [[ $(kubectl get apiservices | grep "v1beta1.snapshot.storage.k8s.io") ]]; then
+cat <<EOF | kubectl apply -f - &> /dev/null
+apiVersion: snapshot.storage.k8s.io/v1beta1
+kind: VolumeSnapshot
+metadata:
+  name: ${VOLUME_SNAP_SRC}
+spec:
+  volumeSnapshotClassName: ${SNAPSHOT_CLASS}
+  source:
+    persistentVolumeClaimName: ${SOURCE_PVC}
+EOF
+	else
 cat <<EOF | kubectl apply -f - &> /dev/null
 apiVersion: snapshot.storage.k8s.io/v1alpha1
 kind: VolumeSnapshot
 metadata:
   name: ${VOLUME_SNAP_SRC}
 spec:
+  snapshotClassName: ${SNAPSHOT_CLASS}
   source:
     kind: PersistentVolumeClaim
     name: ${SOURCE_PVC}
 EOF
+	fi
 	if [[ $? -ne 0 ]]; then
 		echo -e "${RED_BOLD} ${CROSS} Error creating volume snapshot from source pvc${NC}\n"
 		return ${err_status}
@@ -369,12 +401,12 @@ EOF
 
 	while true; do
 		if [[ ${retries} -eq 0 ]]; then
-			echo -e "${RED_BOLD} ${CROSS} Error creating volume snapshot from source pvc${NC}\n"
+			echo -e "${RED_BOLD} ${CROSS} Volume snapshot from source pvc not readyToUse (waited 30 sec)${NC}\n"
 			return ${err_status}
 		fi
 		# shellcheck disable=SC2143
 		if [[ $(kubectl get volumesnapshot snapshot-source-pvc -o yaml | grep 'readyToUse: true') ]]; then
-			echo -e "${GREEN} ${CHECK} Created volume snapshot from source pvc${NC}\n"
+			echo -e "${GREEN} ${CHECK} Created volume snapshot from source pvc and is readyToUse${NC}\n"
 			break
 		else
 			sleep "${sleep}"
@@ -445,7 +477,7 @@ cleanup(){
 
 	echo -e "${LIGHT_BLUE}Cleaning up...${NC}\n"
 
-	kubectl delete pod/"${SOURCE_POD}" pod/"${RESTORE_POD}" pvc/"${SOURCE_PVC}" pvc/"${RESTORE_PVC}" volumesnapshot/"${VOLUME_SNAP_SRC}" &> /dev/null
+	kubectl delete --ignore-not-found=true pod/"${SOURCE_POD}" pod/"${RESTORE_POD}" pvc/"${SOURCE_PVC}" pvc/"${RESTORE_PVC}" volumesnapshot/"${VOLUME_SNAP_SRC}" &> /dev/null
 	if [[ $? -eq 0 ]]; then
 		echo -e "\n${GREEN} ${CHECK} Cleaned up all the resources${NC}\n"
 	else
@@ -481,8 +513,8 @@ check_kubectl_access
 check_helm_tiller_version
 check_kubernetes_version
 check_kubernetes_rbac
-check_storage_class
 check_feature_gates
+check_storage_snapshot_class
 check_csi
 check_dns_resolution
 check_volume_snapshot
