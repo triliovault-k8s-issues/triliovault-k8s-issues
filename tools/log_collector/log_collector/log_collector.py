@@ -3,6 +3,7 @@ import os
 import shutil
 import logging
 import argparse
+import sys
 from datetime import datetime
 
 import kubernetes.client
@@ -37,6 +38,9 @@ VOLUME_SNAPSHOT_CLASS = 'volumesnapshotclasses'
 
 
 def main():
+    if sys.version_info[0] < 3:
+        raise Exception("Must be using Python 3")
+
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('--clustered', action='store_true', help='whether clustered installtion '
                                                                      'of trilio application')
