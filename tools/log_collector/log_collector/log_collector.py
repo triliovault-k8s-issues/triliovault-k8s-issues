@@ -26,6 +26,7 @@ STORAGE_GV = 'storage.k8s.io/v1'
 CORE_GV = 'v1'
 BATCH_GV = 'batch/v1'
 
+NAMESPACES = 'namespaces'
 PODS = 'pods'
 JOBS = 'jobs'
 CRD = 'customresourcedefinitions'
@@ -82,6 +83,16 @@ class LogCollector:
         api_group_versions = self.call('/apis/', 'GET', response_type='V1APIGroupList').groups
         # Consider only preferred_version
         api_group_versions = [api_group.preferred_version.group_version for api_group in api_group_versions]
+
+        log.info("Checking Namespaces")
+        core_gv_resources = self.get_api_gv_resources(CORE_GV)
+        namespace_resource = get_resource_by_name(core_gv_resources, NAMESPACES)
+        namespace_objects = self.get_resource_objects(get_api_group_version_resource_path(CORE_GV), namespace_resource)
+        namespaces = get_object_names(namespace_objects)
+
+        if self.namespaces and not set(self.namespaces).issubset(namespaces):
+            log.error("Specified namespaces doesn't exists in the cluster")
+            return
 
         log.info("Checking API Extension Group")
         apiext_gv = get_gv_by_group(api_group_versions, APIEXTENSIONS_GROUP)
@@ -312,6 +323,14 @@ def check_container(pod):
             current_container = True
 
     return current_container, previous_container
+
+# get_object_names returns list of names of objects
+def get_object_names(objects):
+    name_list = []
+    for object in objects:
+        name_list.append(object['metadata'].get('name'))
+
+    return name_list
 
 # get_api_group_version_resource_path returns api resource path for given group_version
 def get_api_group_version_resource_path(api_group_version):
