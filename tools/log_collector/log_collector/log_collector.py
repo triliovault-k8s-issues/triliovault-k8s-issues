@@ -195,16 +195,26 @@ class LogCollector:
         with open(object_filepath + '.yaml', 'w') as fp:
             yaml.safe_dump(object, default_flow_style=False, stream=fp)
 
-    # write_logs creates log for given pod object after fetching from k8s client
+    # write_logs creates log for given pod object
     def write_logs(self, resource_dir, object):
         obj_namespace = object['metadata']['namespace']
         obj_name = object['metadata']['name']
         resource_dir = os.path.join(self.output_dir, resource_dir, obj_namespace)
         os.makedirs(resource_dir, exist_ok=True)
 
-        object_filepath = os.path.join(resource_dir, obj_name)
-        with open(object_filepath + '.log', 'w') as fp:
-            obj_path = '/api/v1/namespaces/{}/pods/{}/log'.format(obj_namespace, obj_name)
+        current_container, previous_container = check_container(object)
+
+        if current_container:
+            self.write_log(resource_dir, obj_namespace, obj_name)
+
+        if previous_container:
+            self.write_log(resource_dir, obj_namespace, obj_name, True)
+
+    # write_log writes logs of a pod object
+    def write_log(self, resource_dir, obj_namespace, obj_name, is_previous=False):
+        object_filepath = os.path.join(resource_dir, obj_name) + ('.prev.log' if is_previous else '.log')
+        with open(object_filepath, 'w') as fp:
+            obj_path = '/api/v1/namespaces/{}/pods/{}/log?previous={}'.format(obj_namespace, obj_name, is_previous)
             data = self.call(obj_path, 'GET')
             fp.write(data)
 
@@ -288,6 +298,20 @@ def get_resource_by_name(resources, name):
     if matched_resources:
         return matched_resources[0]
 
+# check_container checks whether current and previous containers of a single container pod exits
+def check_container(pod):
+    current_container, previous_container = False, False
+    container_statuses = pod.get('status', {}).get('containerStatuses', [])
+    if container_statuses:
+        container_status = container_statuses[0]
+        last_state = container_status.get('lastState')
+        current_state = container_status.get('state')
+        if 'terminated' in last_state:
+            previous_container = True
+        if 'running' in current_state or 'terminated' in current_state:
+            current_container = True
+
+    return current_container, previous_container
 
 # get_api_group_version_resource_path returns api resource path for given group_version
 def get_api_group_version_resource_path(api_group_version):
