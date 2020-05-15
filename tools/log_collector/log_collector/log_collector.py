@@ -16,12 +16,12 @@ log = logging.getLogger(__name__)
 
 K8S = "K8s_"
 
+OPERATOR_GROUP = 'operators.coreos.com'
 APIEXTENSIONS_GROUP = 'apiextensions.k8s.io'
 SNAPSHOT_STORAGE_GROUP = 'snapshot.storage.k8s.io'
 ADMISSIONREGISTRATION_GROUP = 'admissionregistration.k8s.io/v1beta1'
 TRILIOVAULT_GROUP = 'triliovault.trilio.io'
 CSI_STORAGE_GROUP = 'csi.storage.k8s.io'
-
 
 STORAGE_GV = 'storage.k8s.io/v1'
 CORE_GV = 'v1'
@@ -35,7 +35,7 @@ STORAGE_CLASS = 'storageclasses'
 VOLUME_ATTACHMENT = 'volumeattachments'
 VOLUME_SNAPSHOT = 'volumesnapshots'
 VOLUME_SNAPSHOT_CLASS = 'volumesnapshotclasses'
-
+CLUSTER_SERVICE_VERSION = 'clusterserviceversions'
 
 def main():
     if sys.version_info[0] < 3:
@@ -85,8 +85,6 @@ class LogCollector:
 
         log.info("Fetching API Group version list")
         api_group_versions = self.call('/apis/', 'GET', response_type='V1APIGroupList').groups
-        # Consider only preferred_version
-        api_group_versions = [api_group.preferred_version.group_version for api_group in api_group_versions]
 
         log.info("Checking Namespaces")
         core_gv_resources = self.get_api_gv_resources(CORE_GV)
@@ -97,6 +95,16 @@ class LogCollector:
         if self.namespaces and not set(self.namespaces).issubset(namespaces):
             log.error("Specified namespaces doesn't exists in the cluster")
             return
+
+        log.info("Checking Cluster Service Version")
+        operator_gv_list = get_gv_by_group(api_group_versions, OPERATOR_GROUP, isPreferredVersion=False)
+        operator_gv_resources_map = self.get_api_gv_resources_map(operator_gv_list)
+        csv_resource_map = get_resource_gv_by_name(operator_gv_resources_map, CLUSTER_SERVICE_VERSION)
+        csv_objects = self.get_gv_resource_objects(csv_resource_map)
+        csv_objects = filter_csv(csv_objects)
+        for csv in csv_objects:
+            resource_dir = os.path.join(csv['kind'])
+            self.write_yaml(resource_dir, csv)
 
         log.info("Checking API Extension Group")
         apiext_gv = get_gv_by_group(api_group_versions, APIEXTENSIONS_GROUP)
@@ -183,6 +191,23 @@ class LogCollector:
         resources = [resource for resource in resources if 'list' in resource.verbs]
         return resources
 
+    # get_api_gv_resources returns list of resources for given group version
+    def get_api_gv_resources_map(self, api_group_version_list):
+        resource_map = dict()
+        for api_group in api_group_version_list:
+            resource_path = get_api_group_version_resource_path(api_group)
+            resources = self.call(resource_path, 'GET', response_type='V1APIResourceList').resources
+            resources = [resource for resource in resources if 'list' in resource.verbs]
+            resource_map[api_group] = resources
+        return resource_map
+
+    # get_gv_resource_objects returns list of objects for given resource_path
+    def get_gv_resource_objects(self, gv_resource_map):
+        resource_objects = []
+        for gv, resource in gv_resource_map.items():
+            resource_objects.extend(self.get_resource_objects(get_api_group_version_resource_path(gv), resource))
+        return resource_objects
+
     # get_resource_objects returns list of objects for given resource_path
     def get_resource_objects(self, resource_path, resource):
         if not resource:
@@ -262,6 +287,16 @@ def filter_k8s_jobs(k8s_jobs):
     return filter_k8s_job_list
 
 
+# filter_csv returns list of openshift csv created by triliovault
+def filter_csv(csv_objects):
+    filtered_csv_objects = []
+    for csv_object in csv_objects:
+        if csv_object['metadata']['name'].startswith('k8s-triliovault'):
+            filtered_csv_objects.append(csv_object)
+
+    return filtered_csv_objects
+
+
 # filter_crd returns list of crds created by given set of groups
 def filter_crd(crd_objects):
     crd_filter_group = [TRILIOVAULT_GROUP, SNAPSHOT_STORAGE_GROUP, CSI_STORAGE_GROUP]
@@ -299,13 +334,30 @@ def filter_pods(pod_objects, job_objects):
     return filter_pod_objects
 
 
+# get_gv_list_by_group returns group_version matched for given group
+def get_gv_list_by_group(api_gv_list, group):
+    return [group_version for group_version in api_gv_list if group_version.startswith(group)]
+
 # get_gv_by_group returns group_version matched for given group
-def get_gv_by_group(api_gv_list, group):
-    matched_resources = [group_version for group_version in api_gv_list if group_version.startswith(group)]
-    if matched_resources:
-        return matched_resources[0]
+def get_gv_by_group(api_gv_list, group_name, isPreferredVersion = True):
+    for group in api_gv_list:
+        if group.name == group_name:
+            if isPreferredVersion:
+                return group.preferred_version.group_version
+            else:
+                return [version.group_version for version in group.versions]
     return ''
 
+# get_resource_gv_by_name returns resource object and gv for given resource name
+def get_resource_gv_by_name(resource_map, name):
+    gv_resource_map = dict()
+    for gv, resources in resource_map.items():
+        for resource in resources:
+            if resource.name == name:
+                gv_resource_map[gv] = resource
+                continue
+
+    return gv_resource_map
 
 # get_resource_by_name returns resource object for given resource name
 def get_resource_by_name(resources, name):
