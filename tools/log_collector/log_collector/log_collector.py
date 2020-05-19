@@ -243,19 +243,21 @@ class LogCollector:
         resource_dir = os.path.join(self.output_dir, resource_dir, obj_namespace)
         os.makedirs(resource_dir, exist_ok=True)
 
-        current_container, previous_container = check_container(object)
+        containers = get_containers(object)
+        for name, statuses in containers.items():
+            if statuses[0]:
+                self.write_log(resource_dir, obj_namespace, obj_name, name)
 
-        if current_container:
-            self.write_log(resource_dir, obj_namespace, obj_name)
+            if statuses[1]:
+                self.write_log(resource_dir, obj_namespace, obj_name, name, True)
 
-        if previous_container:
-            self.write_log(resource_dir, obj_namespace, obj_name, True)
 
     # write_log writes logs of a pod object
-    def write_log(self, resource_dir, obj_namespace, obj_name, is_previous=False):
-        object_filepath = os.path.join(resource_dir, obj_name) + ('.prev.log' if is_previous else '.log')
+    def write_log(self, resource_dir, obj_namespace, obj_name, container, is_previous=False):
+        object_filepath = os.path.join(resource_dir, obj_name) + '.{}.{}.log'.format(container, 'prev' if is_previous else 'curr')
         with open(object_filepath, 'w') as fp:
-            obj_path = '/api/v1/namespaces/{}/pods/{}/log?previous={}'.format(obj_namespace, obj_name, is_previous)
+            obj_path = '/api/v1/namespaces/{}/pods/{}/log?container={}&previous={}'.format(obj_namespace, obj_name,
+                                                                                           container, is_previous)
             data = self.call(obj_path, 'GET')
             fp.write(data)
 
@@ -366,20 +368,33 @@ def get_resource_by_name(resources, name):
     if matched_resources:
         return matched_resources[0]
 
-# check_container checks whether current and previous containers of a single container pod exits
-def check_container(pod):
-    current_container, previous_container = False, False
+
+# get_containers returns containers of a pod with their current and previous statuses
+def get_containers(pod):
+    containers = dict()
     container_statuses = pod.get('status', {}).get('containerStatuses', [])
-    if container_statuses:
-        container_status = container_statuses[0]
-        last_state = container_status.get('lastState')
-        current_state = container_status.get('state')
-        if 'terminated' in last_state:
-            previous_container = True
-        if 'running' in current_state or 'terminated' in current_state:
-            current_container = True
+    for container_status in container_statuses:
+        containers[container_status['name']] = get_container_status_value(container_status)
+
+    container_statuses = pod.get('status', {}).get('initContainerStatuses', [])
+    for container_status in container_statuses:
+        containers[container_status['name']] = get_container_status_value(container_status)
+
+    return containers
+
+
+# get_container_status_value returns wherether current and previous container present to capture logs
+def get_container_status_value(container_status):
+    current_container, previous_container = False, False
+    last_state = container_status.get('lastState')
+    current_state = container_status.get('state')
+    if 'terminated' in last_state:
+        previous_container = True
+    if 'running' in current_state or 'terminated' in current_state:
+        current_container = True
 
     return current_container, previous_container
+
 
 # get_object_names returns list of names of objects
 def get_object_names(objects):
