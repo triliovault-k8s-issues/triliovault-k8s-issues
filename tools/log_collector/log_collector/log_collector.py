@@ -38,8 +38,9 @@ VOLUME_SNAPSHOT_CLASS = 'volumesnapshotclasses'
 CLUSTER_SERVICE_VERSION = 'clusterserviceversions'
 
 def main():
-    if sys.version_info[0] < 3:
-        raise Exception("Must be using Python 3")
+    if not sys.version_info.major == 3 and sys.version_info.minor >= 6:
+        print("You are using Python {}.{}.".format(sys.version_info.major, sys.version_info.minor))
+        raise Exception("Python 3.6 or higher is required.")
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('--clustered', action='store_true', help='whether clustered installtion '
