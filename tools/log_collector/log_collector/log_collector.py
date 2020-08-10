@@ -4,6 +4,7 @@ import shutil
 import logging
 import argparse
 import sys
+from collections import defaultdict
 from datetime import datetime
 
 import kubernetes.client
@@ -28,6 +29,7 @@ CORE_GV = 'v1'
 BATCH_GV = 'batch/v1'
 
 NAMESPACES = 'namespaces'
+EVENTS = 'events'
 PODS = 'pods'
 JOBS = 'jobs'
 CRD = 'customresourcedefinitions'
@@ -83,6 +85,8 @@ class LogCollector:
     def dump_all(self):
         if self.clean_output:
             shutil.rmtree(self.output_dir, ignore_errors=True)
+
+        resource_map = dict()
 
         log.info("Fetching API Group version list")
         api_group_versions = self.call('/apis/', 'GET', response_type='V1APIGroupList').groups
@@ -143,6 +147,14 @@ class LogCollector:
                 if object['metadata']['name'].startswith('k8s-triliovault'):
                     self.write_yaml(resource_dir, object)
 
+        log.info("Checking Storage Group")
+        storage_gv_resources = self.get_api_gv_resources(STORAGE_GV)
+        sc_resource = get_resource_by_name(storage_gv_resources, STORAGE_CLASS)
+        sc_objects = self.get_resource_objects(get_api_group_version_resource_path(STORAGE_GV), sc_resource)
+        for sc in sc_objects:
+            resource_dir = os.path.join(sc_resource.kind)
+            self.write_yaml(resource_dir, sc)
+
         log.info("Checking Trilio Group")
         trilio_gv = get_gv_by_group(api_group_versions, TRILIOVAULT_GROUP)
         trilio_gv_resources = self.get_api_gv_resources(trilio_gv)
@@ -151,14 +163,6 @@ class LogCollector:
             resource_dir = os.path.join(resource.kind)
             for object in object_list:
                 self.write_yaml(resource_dir, object)
-
-        log.info("Checking Storage Group")
-        storage_gv_resources = self.get_api_gv_resources(STORAGE_GV)
-        sc_resource = get_resource_by_name(storage_gv_resources, STORAGE_CLASS)
-        sc_objects = self.get_resource_objects(get_api_group_version_resource_path(STORAGE_GV), sc_resource)
-        for sc in sc_objects:
-            resource_dir = os.path.join(sc_resource.kind)
-            self.write_yaml(resource_dir, sc)
 
         log.info("Checking Batch Group")
         batch_gv_resources = self.get_api_gv_resources(BATCH_GV)
@@ -173,12 +177,18 @@ class LogCollector:
         core_gv_resources = self.get_api_gv_resources(CORE_GV)
         pod_resource = get_resource_by_name(core_gv_resources, PODS)
         pod_objects = self.get_resource_objects(get_api_group_version_resource_path(CORE_GV), pod_resource)
-        pod_objects = filter_pods(pod_objects, job_objects)
+        pod_names, pod_objects = filter_pods(pod_objects, job_objects)
+        resource_map[pod_resource.kind] = pod_names
 
         for pod in pod_objects:
             resource_dir = os.path.join(pod_resource.kind)
             self.write_yaml(resource_dir, pod)
             self.write_logs(resource_dir, pod)
+
+        event_resource = get_resource_by_name(core_gv_resources, EVENTS)
+        event_objects = self.get_resource_objects(get_api_group_version_resource_path(CORE_GV), event_resource)
+        events = aggregate_events(event_objects, resource_map)
+        self.write_events(events)
 
         # Zip directory
         self.zipdir()
@@ -225,6 +235,16 @@ class LogCollector:
             result = self.call(list_path, 'GET')
             return result['items']
 
+    # write_events writes events
+    def write_events(self, events_details):
+        for namespace, event_objects in events_details.items():
+            resource_dir = os.path.join(self.output_dir, 'Events', namespace)
+            os.makedirs(resource_dir, exist_ok=True)
+            for event_object, event_details in event_objects.items():
+                object_filepath = os.path.join(resource_dir, event_object)
+                with open(object_filepath + '.yaml', 'w') as fp:
+                    yaml.safe_dump(event_details, default_flow_style=False, stream=fp)
+
     # write_yaml writes yaml for given k8s object
     def write_yaml(self, resource_dir, object):
         obj_namespace = object['metadata'].get('namespace')
@@ -258,8 +278,15 @@ class LogCollector:
         with open(object_filepath, 'w') as fp:
             obj_path = '/api/v1/namespaces/{}/pods/{}/log?container={}&previous={}'.format(obj_namespace, obj_name,
                                                                                            container, is_previous)
-            data = self.call(obj_path, 'GET')
-            fp.write(data)
+            try:
+                data = self.call(obj_path, 'GET')
+                fp.write(data)
+            except Exception as e:
+                result = str(e).find("ContainerCreating")
+                if result != -1:
+                    log.info("API calling Failed for Object Path: "+obj_path)
+                else:
+                    raise
 
     # zipdir creates zip directory of collected info
     def zipdir(self):
@@ -270,6 +297,27 @@ class LogCollector:
         if self.clean_output:
             shutil.rmtree(self.output_dir, ignore_errors=True)
 
+
+# aggregate_events aggregates events based on involved objects
+def aggregate_events(events, resource_map):
+    event_dict = defaultdict(lambda: defaultdict(list))
+    for event in events:
+        involvedObject = event.get('involvedObject', {})
+        apiVersion = involvedObject.get('apiVersion', '')
+        kind = involvedObject.get('kind', '')
+        namespace = involvedObject.get('namespace', '')
+        name = involvedObject.get('name','')
+        resource_nsnm = get_namespaced_name(namespace, name)
+
+        if apiVersion.startswith(TRILIOVAULT_GROUP) or (kind in resource_map and resource_nsnm in resource_map[kind]):
+            event.pop('metadata', None)
+            event.pop('involvedObject', None)
+            event_dict[namespace][f'{kind.lower()}\{name}'].append(event)
+    return event_dict
+
+# get_namespaced_name returns namespaced name representation of a resource
+def get_namespaced_name(namespace, name):
+    return f'{namespace}/{name}'
 
 # filter_k8s_jobs returns list of jobs created by triliovault application
 def filter_k8s_jobs(k8s_jobs):
@@ -320,21 +368,23 @@ def filter_pods(pod_objects, job_objects):
         pod_job_names.append(job['metadata']['name'])
 
     filter_pod_objects = []
+    filter_pod_names = []
     for pod in pod_objects:
         pod_name = pod['metadata']['name']
+        pod_ns = pod['metadata'].get('namespace', '')
         ownerReferences = pod['metadata'].get('ownerReferences', [])
+        pod_ns_nm = get_namespaced_name(pod_ns, pod_name)
 
         controller_owner = None
         for owner in ownerReferences:
             if owner.get('controller') and owner.get('apiVersion') == 'batch/v1' and owner.get('kind') == 'Job':
                 controller_owner = owner['name']
 
-        if pod_name.startswith('k8s-triliovault'):
-            filter_pod_objects.append(pod)
-        elif controller_owner in pod_job_names:
+        if pod_name.startswith('k8s-triliovault') or controller_owner in pod_job_names:
+            filter_pod_names.append(pod_ns_nm)
             filter_pod_objects.append(pod)
 
-    return filter_pod_objects
+    return filter_pod_names, filter_pod_objects
 
 
 # get_gv_list_by_group returns group_version matched for given group
@@ -414,3 +464,4 @@ def get_api_group_version_resource_path(api_group_version):
 
 if __name__ == '__main__':
     main()
+
