@@ -7,7 +7,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='k8s-triliovault-logcollector',
-    version='0.0.1',
+    version='1.0.0',
     author='TrilioData',
     author_email='support@trilio.io',
     url='http://www.trilio.io/',
