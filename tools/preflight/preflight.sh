@@ -231,6 +231,10 @@ check_feature_gates() {
 		features=("VolumeSnapshotDataSource")
 	fi
 
+	if [[ "${k8s_version}" < 15 ]]; then
+		features+=("CustomResourceWebhookConversion")
+	fi
+
 	if [[ ${k8s_version} == "17" ]]; then
 		echo -e "${GREEN} ${CHECK} No feature gates needed${NC}\n"
 		return ${exit_status}
