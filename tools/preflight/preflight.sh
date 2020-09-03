@@ -298,7 +298,6 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: dnsutils
-  namespace: default
 spec:
   containers:
   - name: dnsutils
