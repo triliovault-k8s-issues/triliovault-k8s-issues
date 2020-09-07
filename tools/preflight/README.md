@@ -42,8 +42,9 @@ The following checks included in preflight:
   - `chmod +x ./preflight.sh`
 
 - Available parametes for script `./preflight.sh --help`
-  - `--storageclass` - Name of storage class in k8s cluster (Mandatory)
+  - `--storageclass` - Name of storage class being used in k8s cluster (Needed)
+  - `--snapshotclass` Name of volume snapshot class being used in k8s cluster (Needed)
   - `--kubeconfig` - Kubeconfig path, if not given default is used by kubectl (Optional)
 
 - Running preflight checks
-  - `./preflight.sh --storageclass my-hostpath-sc --kubeconfig /home/usr/kubeconfig`
+  - `./preflight.sh --storageclass my-hostpath-sc --snapshotclass default-snapclass --kubeconfig /home/usr/kubeconfig`
