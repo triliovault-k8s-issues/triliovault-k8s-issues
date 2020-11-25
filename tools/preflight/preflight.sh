@@ -235,7 +235,7 @@ check_feature_gates() {
 		features+=("CustomResourceWebhookConversion")
 	fi
 
-	if [[ ${k8s_version} == "17" ]]; then
+	if [[ ${k8s_version} -ge "17" ]]; then
 		echo -e "${GREEN} ${CHECK} No feature gates needed${NC}\n"
 		return ${exit_status}
 	fi
