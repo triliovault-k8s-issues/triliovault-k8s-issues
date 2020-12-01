@@ -21,6 +21,9 @@ SOURCE_PVC="source-pvc"
 RESTORE_POD="restored-pod"
 RESTORE_PVC="restored-pvc"
 VOLUME_SNAP_SRC="snapshot-source-pvc"
+UNUSED_RESTORE_POD="unused-restored-pod"
+UNUSED_RESTORE_PVC="unused-restored-pvc"
+UNUSED_VOLUME_SNAP_SRC="unused-source-pvc"
 
 print_help(){
 echo "Usage:
@@ -210,6 +213,16 @@ check_storage_snapshot_class() {
 		echo -e "${RED} ${CROSS} Volume snapshot class \"${SNAPSHOT_CLASS}\" not found${NC}\n"
 		exit_status=1
 	fi
+	if [[ $(kubectl get apiservices | grep "v1beta1.snapshot.storage.k8s.io") ]]; then
+		echo -e "${GREEN} ${CHECK} Snapshot api is in beta. No need to have default class annotation on volume snapshot class${NC}\n"
+	else
+		if [[ $(kubectl get volumesnapshotclass -o yaml | grep "is-default-class: \"true\"") ]]; then
+			echo -e "${GREEN} ${CHECK} Snapshot api is in alpha. Found a snapshot class marked as default${NC}\n"
+		else
+			echo -e "${RED} ${CROSS} Snapshot api is in alpha. No snapshot class is marked default${NC}\n"
+			exit_status=1
+		fi
+	fi
 	return ${exit_status}
 }
 
@@ -327,7 +340,7 @@ check_volume_snapshot(){
 	echo -e "${LIGHT_BLUE}Checking if volume snapshot and restore enabled in K8s cluster...${NC}\n"
 	local err_status=1
 	local success_status=0
-	local retries=6
+	local retries=30
 	local sleep=5
 	set +o errexit
 
@@ -404,11 +417,11 @@ EOF
 
 	while true; do
 		if [[ ${retries} -eq 0 ]]; then
-			echo -e "${RED_BOLD} ${CROSS} Volume snapshot from source pvc not readyToUse (waited 30 sec)${NC}\n"
+			echo -e "${RED_BOLD} ${CROSS} Volume snapshot from source pvc not readyToUse (waited 150 sec)${NC}\n"
 			return ${err_status}
 		fi
 		# shellcheck disable=SC2143
-		if [[ $(kubectl get volumesnapshot snapshot-source-pvc -o yaml | grep 'readyToUse: true') ]]; then
+		if [[ $(kubectl get volumesnapshot "${VOLUME_SNAP_SRC}" -o yaml | grep 'readyToUse: true') ]]; then
 			echo -e "${GREEN} ${CHECK} Created volume snapshot from source pvc and is readyToUse${NC}\n"
 			break
 		else
@@ -471,6 +484,116 @@ EOF
 		echo -e "${RED_BOLD} ${CROSS} Restored pod does not have expected data${NC}\n"
 		return ${err_status}
 	fi
+
+	kubectl delete --ignore-not-found=true pod/"${SOURCE_POD}" &> /dev/null
+	if [[ $? -eq 0 ]]; then
+		echo -e "${GREEN} ${CHECK} Deleted source pod${NC}\n"
+	else
+		echo -e "${RED_BOLD} ${CROSS} Error cleaning up source pod${NC}\n"
+		exit_status=1
+	fi
+
+	# shellcheck disable=SC2143
+	if [[ $(kubectl get apiservices | grep "v1beta1.snapshot.storage.k8s.io") ]]; then
+cat <<EOF | kubectl apply -f - &> /dev/null
+apiVersion: snapshot.storage.k8s.io/v1beta1
+kind: VolumeSnapshot
+metadata:
+  name: ${UNUSED_VOLUME_SNAP_SRC}
+spec:
+  volumeSnapshotClassName: ${SNAPSHOT_CLASS}
+  source:
+    persistentVolumeClaimName: ${SOURCE_PVC}
+EOF
+	else
+cat <<EOF | kubectl apply -f - &> /dev/null
+apiVersion: snapshot.storage.k8s.io/v1alpha1
+kind: VolumeSnapshot
+metadata:
+  name: ${UNUSED_VOLUME_SNAP_SRC}
+spec:
+  snapshotClassName: ${SNAPSHOT_CLASS}
+  source:
+    kind: PersistentVolumeClaim
+    name: ${SOURCE_PVC}
+EOF
+	fi
+	if [[ $? -ne 0 ]]; then
+		echo -e "${RED_BOLD} ${CROSS} Error creating volume snapshot from unused source pvc${NC}\n"
+		return ${err_status}
+	fi
+
+	while true; do
+		if [[ ${retries} -eq 0 ]]; then
+			echo -e "${RED_BOLD} ${CROSS} Volume snapshot from source pvc not readyToUse (waited 150 sec)${NC}\n"
+			return ${err_status}
+		fi
+		# shellcheck disable=SC2143
+		if [[ $(kubectl get volumesnapshot "${UNUSED_VOLUME_SNAP_SRC}" -o yaml | grep 'readyToUse: true') ]]; then
+			echo -e "${GREEN} ${CHECK} Created volume snapshot from unused source pvc and is readyToUse${NC}\n"
+			break
+		else
+			sleep "${sleep}"
+			((retries--))
+			continue
+		fi
+	done
+
+
+cat <<EOF | kubectl apply -f - &> /dev/null
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: ${UNUSED_RESTORE_PVC}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ${STORAGE_CLASS}
+  resources:
+    requests:
+      storage: 1Gi
+  dataSource:
+    kind: VolumeSnapshot
+    name: ${UNUSED_VOLUME_SNAP_SRC}
+    apiGroup: snapshot.storage.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${UNUSED_RESTORE_POD}
+spec:
+  containers:
+  - name: busybox
+    image: busybox
+    args:
+    - sleep
+    - "3600"
+    volumeMounts:
+    - name: source-data
+      mountPath: /demo/data
+  volumes:
+  - name: source-data
+    persistentVolumeClaim:
+      claimName: ${UNUSED_RESTORE_PVC}
+      readOnly: false
+EOF
+
+	kubectl wait --for=condition=ready --timeout=2m pod/"${UNUSED_RESTORE_POD}" &> /dev/null
+	if [[ $? -eq 0 ]]; then
+		echo -e "${GREEN} ${CHECK} Created restore pod from volume snapshot of unused pv${NC}\n"
+	else
+		echo -e "${RED_BOLD} ${CROSS} Error creating pod and pvc from volume snapshot of unused pv${NC}\n"
+		return ${err_status}
+	fi
+
+	kubectl exec -it "${UNUSED_RESTORE_POD}" -- ls /demo/data/sample-file.txt &> /dev/null
+	if [[ $? -eq 0 ]]; then
+		echo -e "${GREEN} ${CHECK} Restored pod from volume snapshot of unused pv has expected data${NC}\n"
+	else
+		echo -e "${RED_BOLD} ${CROSS} Restored pod from volume snapshot of unused pv does not have expected data${NC}\n"
+		return ${err_status}
+	fi
+
 	set -o errexit
 	return ${success_status}
 }
@@ -480,7 +603,8 @@ cleanup(){
 
 	echo -e "${LIGHT_BLUE}Cleaning up...${NC}\n"
 
-	kubectl delete --ignore-not-found=true pod/"${SOURCE_POD}" pod/"${RESTORE_POD}" pvc/"${SOURCE_PVC}" pvc/"${RESTORE_PVC}" volumesnapshot/"${VOLUME_SNAP_SRC}" &> /dev/null
+	kubectl delete --ignore-not-found=true pod/"${SOURCE_POD}" pod/"${RESTORE_POD}" pod/"${UNUSED_RESTORE_POD}" pvc/"${SOURCE_PVC}" \
+	pvc/"${RESTORE_PVC}" pvc/"${UNUSED_RESTORE_PVC}" volumesnapshot/"${VOLUME_SNAP_SRC}" volumesnapshot/"${UNUSED_VOLUME_SNAP_SRC}"  &> /dev/null
 	if [[ $? -eq 0 ]]; then
 		echo -e "\n${GREEN} ${CHECK} Cleaned up all the resources${NC}\n"
 	else
