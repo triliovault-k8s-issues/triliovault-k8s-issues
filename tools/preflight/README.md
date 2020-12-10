@@ -16,6 +16,7 @@ The following checks included in preflight:
 - Ensure minimum Kubernetes version >= 1.13.x
 - Ensure RBAC is enabled in cluster
 - Ensure provided storageClass is present in cluster
+- Ensure atleast one of the snapshot class is marked as *default* in cluster if volume snapshot api is in alpha state
 - Ensure all required features are present
   - Alpha features for k8s version less than 1.14.x and greater than 1.13.x  --> *"CSIBlockVolume" "CSIDriverRegistry" "CSINodeInfo" "VolumeSnapshotDataSource"*
   - Alpha features for k8s version less than 1.17.x and greater than 1.14.x --> *"VolumeSnapshotDataSource"*
@@ -29,10 +30,12 @@ The following checks included in preflight:
   - "volumesnapshots.snapshot.storage.k8s.io"
 - Ensure DNS resolution works as expected in the cluster
   - Creates a new pod (*dnsutils*) then resolve *kubernetes.default* service from inside the pod
-- Ensure Volume Snapshot functionality works as expected
+- Ensure Volume Snapshot functionality works as expected for both used and unused PVs
   - Create a source Pod and PVC (*source-pod* and *source-pvc*)
-  - Create a Volume snapshot (*snapshot-source-pvc*) from the *source-pvc*
+  - Create a Volume snapshot from a used PV (*snapshot-source-pvc*) from the *source-pvc*
+  - Create a volume snapshot from unused PV (delete the source pod before snapshoting)
   - Create a restore Pod and PVC (*restored-pod* and *restored-pvc*)
+  - Create a resotre Pod and PVC from unused pv snapshot
   - Ensure data in restored pod/pvc
 - Cleanup of all the intermediate resources created
 
