@@ -30,6 +30,13 @@ VolumeSnapshotClass
 StorageClass
 Jobs
 Pods
+DaemonSets
+Deployments
+ReplicaSets
+StatefulSet
+PersistentVolumeClaims
+PersistentVolumes
+Services
 ```
 and ```TrilioVault Resources```
 
