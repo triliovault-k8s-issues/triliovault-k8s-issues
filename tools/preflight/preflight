@@ -27,7 +27,7 @@ UNUSED_VOLUME_SNAP_SRC="unused-source-pvc"
 
 print_help(){
 echo "Usage:
-./preFlight.sh --storageclass <storage_class_name>
+preflight --storageclass <storage_class_name>
 Params:
 	--storageclass	name of storage class being used in k8s cluster
 	--snapshotclass name of volume snapshot class being used in k8s cluster
@@ -238,13 +238,13 @@ check_feature_gates() {
 	echo -e "${LIGHT_BLUE}Checking if needed features are available in k8s cluster for version ${k8s_version}...${NC}\n"
 
 	k8s_version=$(echo "${k8s_version}" | cut -d '.' -f2 )
-	if [[ "${k8s_version}" == 13 ]]; then
+	if [[ "${k8s_version}" == "13" ]]; then
 		features=("CSIBlockVolume" "CSIDriverRegistry" "CSINodeInfo" "VolumeSnapshotDataSource")
 	else
 		features=("VolumeSnapshotDataSource")
 	fi
 
-	if [[ "${k8s_version}" < 15 ]]; then
+	if [[ "${k8s_version}" -lt "15" ]]; then
 		features+=("CustomResourceWebhookConversion")
 	fi
 
@@ -286,6 +286,7 @@ check_csi() {
 
 	k8s_version=$(kubectl version --short | grep Server | awk '{print $3}' | cut -d '.' -f2)
 	if [[ "${k8s_version}" == 13 ]]; then
+		# shellcheck disable=SC2206
 		common_required_apis+=( ${apis_for_k8s_13[@]} )
 	fi
 
