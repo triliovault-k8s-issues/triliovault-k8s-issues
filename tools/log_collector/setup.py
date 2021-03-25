@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-required = ['kubernetes ~= 10.0.1', 'PyYAML==5.3.1']
+required = ['kubernetes ~= 10.0.1', 'PyYAML==5.4']
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
